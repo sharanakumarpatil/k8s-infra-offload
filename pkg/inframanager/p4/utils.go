@@ -215,14 +215,15 @@ func PrepareTable(tblaction map[string][]UpdateTable, tbl *Table) {
 	tblaction[tblmap.tableName] = append(tblaction[tblmap.tableName], tblmap)
 }
 
-// This function calls Insert_table_entry or delete_table_entry based on actiontype flag
-func ConfigureTable(ctx context.Context, p4RtC *client.Client, P4w P4RtCWrapper, tablenames []string, tblactionmap map[string][]UpdateTable, actionnames []string, actiontype bool) error {
+// This function invokes Insert_table_entry, delete_table_entry or modify_table_entry based on action flag
+func ConfigureTable(ctx context.Context, p4RtC *client.Client, P4w P4RtCWrapper, tablenames []string, tblactionmap map[string][]UpdateTable, actionnames []string, action InterfaceType) error {
 
 	for i := range tablenames {
 		v := tblactionmap[tablenames[i]]
 		for k := 0; k < len(v); k++ {
 			for j := 0; j < len(v[k].mfs); j++ {
-				if actiontype {
+				switch action {
+				case Insert:
 					//log.Debugf("Key value %s action value %s", v[k].mfs[j].key, v[k].paramData[j].data)
 					//log.Debugf("tablename %s actionname %s", tablenames[i], actionnames[i])
 					entryAdd := P4w.NewTableEntry(
@@ -237,7 +238,22 @@ func ConfigureTable(ctx context.Context, p4RtC *client.Client, P4w P4RtCWrapper,
 						return err
 					}
 					//log.Debugf("Entry added for = %s", tablenames[i])
-				} else {
+
+				case Update:
+					entryMod := P4w.NewTableEntry(
+						p4RtC,
+						tablenames[i],
+						v[k].mfs[j].key,
+						P4w.NewTableActionDirect(p4RtC, actionnames[i], v[k].paramData[j].data),
+						nil,
+					)
+					if err := P4w.ModifyTableEntry(ctx, p4RtC, entryMod); err != nil {
+						log.Errorf("Failed to Modify entry in %s table, err: %v", tablenames[i], err)
+						return err
+					}
+					//log.Debugf("Entry Modified for = %s", tablenames[i])
+
+				case Delete:
 					entryDel := P4w.NewTableEntry(
 						p4RtC,
 						tablenames[i],

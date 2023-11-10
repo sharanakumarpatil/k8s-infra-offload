@@ -2,6 +2,7 @@ package p4
 
 import (
 	"context"
+
 	"github.com/antoninbas/p4runtime-go-client/pkg/client"
 	p4_v1 "github.com/p4lang/p4runtime/go/p4/v1"
 )
@@ -10,6 +11,7 @@ type P4RtCWrapper interface {
 	NewTableEntry(p4RtC *client.Client, table string, mfs map[string]client.MatchInterface, action *p4_v1.TableAction, options *client.TableEntryOptions) *p4_v1.TableEntry
 	NewTableActionDirect(p4RtC *client.Client, action string, params [][]byte) *p4_v1.TableAction
 	InsertTableEntry(ctx context.Context, p4RtC *client.Client, entry *p4_v1.TableEntry) error
+	ModifyTableEntry(ctx context.Context, p4RtC *client.Client, entry *p4_v1.TableEntry) error
 	DeleteTableEntry(ctx context.Context, p4RtC *client.Client, entry *p4_v1.TableEntry) error
 	NewActionProfileMember(p4RtC *client.Client, actionProfile string, memberID uint32, action string, params [][]byte) *p4_v1.ActionProfileMember
 	InsertActionProfileMember(ctx context.Context, p4RtC *client.Client, entry *p4_v1.ActionProfileMember) error
@@ -47,6 +49,10 @@ func (P4RtC P4RtCWrapperStruct) NewTableActionDirect(p4RtC *client.Client, actio
 
 func (P4RtC P4RtCWrapperStruct) InsertTableEntry(ctx context.Context, p4RtC *client.Client, entry *p4_v1.TableEntry) error {
 	return p4RtC.InsertTableEntry(ctx, entry)
+}
+
+func (P4RtC P4RtCWrapperStruct) ModifyTableEntry(ctx context.Context, p4RtC *client.Client, entry *p4_v1.TableEntry) error {
+	return p4RtC.ModifyTableEntry(ctx, entry)
 }
 
 func (P4RtC P4RtCWrapperStruct) DeleteTableEntry(ctx context.Context, p4RtC *client.Client, entry *p4_v1.TableEntry) error {

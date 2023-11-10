@@ -219,6 +219,7 @@ func InsertServiceRules(ctx context.Context, p4RtC *client.Client,
 	var groupID uint32
 
 	svcmap := make(map[string][]UpdateTable)
+	svcmapupdate := make(map[string][]UpdateTable)
 	key := make([]interface{}, 0)
 	action := make([]interface{}, 0)
 
@@ -387,6 +388,7 @@ func InsertServiceRules(ctx context.Context, p4RtC *client.Client,
 		log.Debugf("Update tx_balance table, modblobptrdnatbyte: %v, InterfaceIDbyte: %v",
 			modblobptrdnatbyte, InterfaceIDbyte)
 	}
+
 	//tx_balance
 	key = append(key, Pack32BinaryIP4(service.ClusterIp))
 	if service.Proto == "TCP" {
@@ -403,7 +405,11 @@ func InsertServiceRules(ctx context.Context, p4RtC *client.Client,
 		action = append(action, InterfaceIDbyte[index])
 		action = append(action, modblobptrdnatbyte[index])
 
-		updateTables("k8s_dp_control.tx_balance", data, svcmap, key, action, 1)
+		if actn == Update {
+			updateTables("k8s_dp_control.tx_balance", data, svcmapupdate, key, action, 1) // For Entries update
+		} else {
+			updateTables("k8s_dp_control.tx_balance", data, svcmap, key, action, 1) // To add new service entries
+		}
 
 		//Remove last element from key
 		key = key[:len(key)-1]
@@ -413,10 +419,18 @@ func InsertServiceRules(ctx context.Context, p4RtC *client.Client,
 	log.Debugf("Inserted into the table TxBalance, service ip: %s, service port: %d",
 		service.ClusterIp, uint16(service.Port))
 
-	err = ConfigureTable(ctx, p4RtC, P4w, service_table_names, svcmap, service_action_names, true)
+	err = ConfigureTable(ctx, p4RtC, P4w, service_table_names, svcmap, service_action_names, Insert)
 	if err != nil {
 		fmt.Println("failed to make entries to service p4")
 		return err, service
+	}
+
+	if actn == Update {
+		err = ConfigureTable(ctx, p4RtC, P4w, service_table_names, svcmapupdate, service_action_names, Update)
+		if err != nil {
+			fmt.Println("failed to make entries to service p4")
+			return err, service
+		}
 	}
 
 	return nil, service
@@ -522,7 +536,7 @@ func DeleteServiceRules(ctx context.Context, p4RtC *client.Client,
 	}
 	resetSlices(&key, nil)
 
-	err = ConfigureTable(ctx, p4RtC, P4w, service_table_names, svcmap, nil, false)
+	err = ConfigureTable(ctx, p4RtC, P4w, service_table_names, svcmap, nil, Delete)
 	if err != nil {
 		fmt.Println("failed to delete entries")
 		return err
