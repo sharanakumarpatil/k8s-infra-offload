@@ -444,15 +444,6 @@ func (s *serviceServer) updateServicePort(key string, service *v1.Service, ep *v
 			return nil
 		}
 
-		for _, nt := range oldEntry.Entries {
-			// if backends are empty we did not send message to inframanager
-			if len(nt.Backends) > 0 {
-				if err := s.handler.NatTranslationDelete(nt); err != nil {
-					s.log.WithError(err).Errorf("Failed to delete entry for %v", nt)
-					return err
-				}
-			}
-		}
 		delete(s.stateMap, serviceID)
 	}
 	for _, nt := range se.Entries {
