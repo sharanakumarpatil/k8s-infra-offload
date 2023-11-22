@@ -234,7 +234,12 @@ func InsertServiceRules(ctx context.Context, p4RtC *client.Client,
 
 	service = s
 
-	log.Infof("=====Inserting to service tables======")
+	if len(podIpAddr) == 0 {
+		err := fmt.Errorf("No Endpoints to program")
+		return err, store.Service{}
+	}
+
+	log.Infof("Inserting to service tables")
 
 	if update {
 		actn = Update
@@ -244,7 +249,6 @@ func InsertServiceRules(ctx context.Context, p4RtC *client.Client,
 		for _, value := range s.ServiceEndPoint {
 			oldIpAddrs = append(oldIpAddrs, value.IpAddress)
 			oldmodblobptrdnatbyte = append(oldmodblobptrdnatbyte, ValueToBytes(value.ModBlobPtrDNAT))
-			fmt.Println("oldmodblobptrdnatbyte = ", oldmodblobptrdnatbyte) //Debug
 		}
 	} else {
 		actn = Insert
@@ -286,7 +290,11 @@ func InsertServiceRules(ctx context.Context, p4RtC *client.Client,
 		if entry != nil {
 			epEntry := entry.(store.EndPoint)
 
-			podmac, _ := net.ParseMAC(epEntry.PodMacAddress)
+			podmac, err := net.ParseMAC(epEntry.PodMacAddress)
+			if err != nil {
+				err = fmt.Errorf("Invalid MAC Address")
+				return err, store.Service{}
+			}
 			macByte = append(macByte, podmac)
 
 			InterfaceIDbyte = append(InterfaceIDbyte, ValueToBytes16(uint16(epEntry.InterfaceID))) //L2 forwarding port
@@ -323,7 +331,11 @@ func InsertServiceRules(ctx context.Context, p4RtC *client.Client,
 	}
 	entry := ep.GetFromStore()
 	epEntry := entry.(store.EndPoint)
-	smacbyte, _ := net.ParseMAC(epEntry.PodMacAddress)
+	smacbyte, err := net.ParseMAC(epEntry.PodMacAddress)
+	if err != nil {
+		err = fmt.Errorf("Invalid MAC Address")
+		return
+	}
 	smac := []byte(smacbyte)
 
 	// The set_vip_flag or set_vip_flag_tcp action is invoked only once for each unique combination of service IP and service protocol.
@@ -449,7 +461,7 @@ func DeleteServiceRules(ctx context.Context, p4RtC *client.Client,
 	svcmap := make(map[string][]UpdateTable)
 	key := make([]interface{}, 0)
 
-	log.Infof("=====Deleting to service tables======")
+	log.Infof("Deleting from service tables")
 
 	data := parseJson("service.json")
 	if data == nil {
