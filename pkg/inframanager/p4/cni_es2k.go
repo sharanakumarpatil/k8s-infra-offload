@@ -46,6 +46,14 @@ var (
 func ArptToPortTable(ctx context.Context, p4RtC *client.Client, arpTpa string, port uint32, flag bool) error {
 	cniarpmap := make(map[string][]UpdateTable)
 
+	var action InterfaceType
+
+	if flag {
+		action = Insert
+	} else {
+		action = Delete
+	}
+
 	P4w = GetP4Wrapper(Env)
 	tablenames := []string{"k8s_dp_control.arp_to_port_table"}
 	actionnames := []string{"k8s_dp_control.set_dest_vport"}
@@ -70,7 +78,8 @@ func ArptToPortTable(ctx context.Context, p4RtC *client.Client, arpTpa string, p
 	}
 	PrepareTable(cniarpmap, arptbl)
 
-	err := ConfigureTable(ctx, p4RtC, P4w, tablenames, cniarpmap, actionnames, flag)
+	//err := ConfigureTable(ctx, p4RtC, P4w, tablenames, cniarpmap, actionnames, flag)
+	err := ConfigureTable(ctx, p4RtC, P4w, tablenames, cniarpmap, actionnames, action)
 	if err != nil {
 		log.Errorf("failed to insert default gateway rule")
 		return err
@@ -186,7 +195,8 @@ func InsertCniRules(ctx context.Context, p4RtC *client.Client, ep store.EndPoint
 	updateTables("k8s_dp_control.ipv4_to_port_table_tx_service", data, cniupdatemap, key, action, 1)
 	resetSlices(&key, &action)
 
-	err = ConfigureTable(ctx, p4RtC, P4w, cni_table_names, cniupdatemap, cni_action_names, true)
+	//err = ConfigureTable(ctx, p4RtC, P4w, cni_table_names, cniupdatemap, cni_action_names, true)
+	err = ConfigureTable(ctx, p4RtC, P4w, cni_table_names, cniupdatemap, cni_action_names, Insert)
 	if err != nil {
 		fmt.Println("failed to make entries to cni p4")
 		return ep, err
@@ -241,7 +251,8 @@ func DeleteCniRules(ctx context.Context, p4RtC *client.Client, ep store.EndPoint
 	updateTables("k8s_dp_control.ipv4_to_port_table_tx_service", data, cniupdatemap, key, nil, 1)
 	resetSlices(&key, nil)
 
-	err = ConfigureTable(ctx, p4RtC, P4w, cni_table_names, cniupdatemap, nil, false)
+	//err = ConfigureTable(ctx, p4RtC, P4w, cni_table_names, cniupdatemap, nil, false)
+	err = ConfigureTable(ctx, p4RtC, P4w, cni_table_names, cniupdatemap, nil, Delete)
 	if err != nil {
 		fmt.Println("failed to delete entries to cni p4")
 		return err

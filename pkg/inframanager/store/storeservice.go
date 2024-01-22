@@ -185,11 +185,26 @@ func (s Service) UpdateToStore() bool {
 
 	sEntry := storeEntry.(Service)
 
-	for ipAddr, serviceEp := range s.ServiceEndPoint {
-		if _, exists := sEntry.ServiceEndPoint[ipAddr]; !exists {
-			sEntry.ServiceEndPoint[ipAddr] = serviceEp
+	//if given backends not exists add it to store.
+	//if given backends exists then remove it from store.
+	if s.NumEndPoints > sEntry.NumEndPoints {
+		for ipAddr, serviceEp := range s.ServiceEndPoint {
+			if _, exists := sEntry.ServiceEndPoint[ipAddr]; !exists {
+				sEntry.ServiceEndPoint[ipAddr] = serviceEp
+				fmt.Println("======Backend updated to store======", ipAddr)
+			}
+		}
+	} else {
+		for ipAddr := range sEntry.ServiceEndPoint {
+			if _, exists := s.ServiceEndPoint[ipAddr]; !exists {
+				delete(sEntry.ServiceEndPoint, ipAddr)
+				fmt.Println("======Backend Removed from store======", ipAddr)
+			}
 		}
 	}
+
+	//Update number of end points count
+	sEntry.NumEndPoints = s.NumEndPoints
 	return sEntry.WriteToStore()
 }
 

@@ -599,7 +599,11 @@ func (s *ApiServer) NatTranslationAdd(ctx context.Context, in *proto.NatTranslat
 	var err error
 	var podPortIDs []uint16
 	var podIpAddrs []string
+	var podIpAddrsDel []string
 	var serviceEpIpAddrs []string
+	var backendIpAddrs []string
+	var epNum uint32
+	var action p4.InterfaceType
 
 	out := &proto.Reply{
 		Successful: true,
@@ -668,11 +672,18 @@ func (s *ApiServer) NatTranslationAdd(ctx context.Context, in *proto.NatTranslat
 			out.Successful = false
 			return out, err
 		}
+		//Existing backends in store.
 		for ipAddr := range service.ServiceEndPoint {
 			serviceEpIpAddrs = append(serviceEpIpAddrs, ipAddr)
 		}
-
+		//Backends in current Add request.
+		for _, e := range in.Backends {
+			backendIpAddrs = append(backendIpAddrs, e.DstEp.Ipv4Addr)
+		}
+		epNum = service.NumEndPoints
 		update = true
+		action = p4.Update
+		fmt.Println("==========p4.Update===============")
 
 	} else {
 		//
@@ -685,21 +696,55 @@ func (s *ApiServer) NatTranslationAdd(ctx context.Context, in *proto.NatTranslat
 		service.MacAddr = serviceMacAddr
 		service.NumEndPoints = 0
 		service.ServiceEndPoint = make(map[string]store.ServiceEndPoint)
+		action = p4.Insert
+		fmt.Println("=========Insert===============")
 	}
 
 	server := NewApiServer()
 	newEps := 0
 
-	for _, e := range in.Backends {
-		ipAddr := e.DstEp.Ipv4Addr
-		if utils.IsIn(ipAddr, serviceEpIpAddrs) {
-			continue
+	if epNum > uint32(len(in.Backends)) {
+		fmt.Println("==========p4.UpdateReduced===============")
+		//Extracting Reduced/deleted backends.
+		//Delete rules for these backends.
+		for _, ipAddr := range serviceEpIpAddrs {
+			if utils.IsIn(ipAddr, backendIpAddrs) {
+				continue
+			}
+			newEps++
+
+			podIpAddrsDel = append(podIpAddrsDel, ipAddr)
+			//podPortIDs = append(podPortIDs, uint16())
 		}
-		newEps++
+		action = p4.UpdateReduced
+		fmt.Println("========podIpAddrs to be deleted ======", podIpAddrsDel)
 
-		podIpAddrs = append(podIpAddrs, ipAddr)
-		podPortIDs = append(podPortIDs, uint16(e.DstEp.Port))
+		if err := p4.DeleteServiceRules(ctx, server.p4RtC, service, podIpAddrsDel); err != nil {
+			logger.Errorf("Failed to delete the service entry %s:%s:%d from the pipeline",
+				in.Endpoint.Ipv4Addr, in.Proto, in.Endpoint.Port)
+			out.Successful = false
+			return out, err
+		}
 
+		//Update rules for requested backends
+		//After Deleting the extra backends.
+		podIpAddrs = backendIpAddrs
+		fmt.Println("========podIpAddrs to be updatedReduced ======", podIpAddrs)
+		podPortIDs = nil
+
+	} else {
+		//Incoming additional backends.
+		for _, e := range in.Backends {
+			ipAddr := e.DstEp.Ipv4Addr
+			if utils.IsIn(ipAddr, serviceEpIpAddrs) {
+				continue
+			}
+			newEps++
+
+			podIpAddrs = append(podIpAddrs, ipAddr)
+			podPortIDs = append(podPortIDs, uint16(e.DstEp.Port))
+		}
+		fmt.Println("========podIpAddrs to be added/updated ======", podIpAddrs)
 	}
 
 	if newEps == 0 {
@@ -709,7 +754,7 @@ func (s *ApiServer) NatTranslationAdd(ctx context.Context, in *proto.NatTranslat
 
 	//Update: We need to handle in p4 layer.
 	err, service = p4.InsertServiceRules(ctx, server.p4RtC, podIpAddrs,
-		podPortIDs, service, update)
+		podPortIDs, service, action)
 	if err != nil {
 		logger.Errorf("Failed to insert the service entry %s:%s:%d, backends: %v, into the pipeline",
 			serviceIpAddr, in.Proto, in.Endpoint.Port, podIpAddrs)
@@ -717,15 +762,27 @@ func (s *ApiServer) NatTranslationAdd(ctx context.Context, in *proto.NatTranslat
 		return out, err
 	}
 	logger.Debugf("Inserted the service entry %s:%s:%d, backends: %v into the pipeline",
-		serviceIpAddr, in.Proto, in.Endpoint.Port, podIpAddrs) //Debug
+		serviceIpAddr, in.Proto, in.Endpoint.Port, podIpAddrs)
 
 	if update {
+
+		//This loop is for debug log
+		for ipAddr := range service.ServiceEndPoint {
+			fmt.Println("==========Backends to be updated - send to store ===========", ipAddr)
+		}
+
 		// Update only the endpoint details to the store
 		if !service.UpdateToStore() {
 			logger.Errorf("Failed to update service entry %s:%s:%d, backends: %v, into the store. Reverting from the pipeline",
 				serviceIpAddr, in.Proto, in.Endpoint.Port, podIpAddrs)
-
-			p4.DeleteServiceRules(ctx, server.p4RtC, service)
+			//Re-evaluate deleting rules when update-to-store fails
+			//for reduced backends scenario
+			if action == p4.UpdateReduced {
+				//p4.DeleteServiceRules(ctx, server.p4RtC, service, podIpAddrsDel)
+				//Insert back deleted rules ?
+			} else {
+				p4.DeleteServiceRules(ctx, server.p4RtC, service, podIpAddrs)
+			}
 
 			err = fmt.Errorf("Failed to update service %s:%s:%d, backends: %v into the store",
 				serviceIpAddr, in.Proto, in.Endpoint.Port, podIpAddrs)
@@ -739,7 +796,7 @@ func (s *ApiServer) NatTranslationAdd(ctx context.Context, in *proto.NatTranslat
 			logger.Errorf("Failed to insert service entry %s:%s:%d, backends: %v into the store. Reverting from the pipeline",
 				serviceIpAddr, in.Proto, in.Endpoint.Port, podIpAddrs)
 
-			p4.DeleteServiceRules(ctx, server.p4RtC, service)
+			p4.DeleteServiceRules(ctx, server.p4RtC, service, nil)
 
 			err = fmt.Errorf("Failed to insert service %s:%s:%d, backends: %v into the store",
 				serviceIpAddr, in.Proto, in.Endpoint.Port, podIpAddrs)
@@ -784,7 +841,7 @@ func (s *ApiServer) NatTranslationDelete(ctx context.Context, in *proto.NatTrans
 
 	server := NewApiServer()
 
-	if err := p4.DeleteServiceRules(ctx, server.p4RtC, service); err != nil {
+	if err := p4.DeleteServiceRules(ctx, server.p4RtC, service, nil); err != nil {
 		logger.Errorf("Failed to delete the service entry %s:%s:%d from the pipeline",
 			in.Endpoint.Ipv4Addr, in.Proto, in.Endpoint.Port)
 		out.Successful = false
